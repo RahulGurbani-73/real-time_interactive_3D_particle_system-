@@ -1,181 +1,336 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Three.js Interactive Particle System</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stardust Gesture Control (With Colors)</title>
+    
+    <!-- 1. MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <!-- 2. Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
     <style>
-        body { margin: 0; background-color: #000000; overflow: hidden; }
-        canvas { display: block; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', sans-serif; }
+        
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 50;
+            color: #00ffff; text-align: center; transition: opacity 0.5s;
+        }
+        
+        #vignette {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, transparent 40%, black 100%);
+            pointer-events: none; z-index: 2;
+        }
+
+        /* --- UI CONTROLS --- */
+        #ui-container {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; flex-direction: column; align-items: center; gap: 15px;
+            z-index: 10;
+        }
+
+        /* Shape Buttons */
+        #shape-bar {
+            display: flex; gap: 12px;
+            background: rgba(20, 20, 20, 0.6); backdrop-filter: blur(20px);
+            padding: 12px 25px; border-radius: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn {
+            background: transparent; border: none; color: rgba(255,255,255,0.6);
+            padding: 10px 18px; border-radius: 20px; cursor: pointer; 
+            font-weight: bold; transition: 0.3s; text-transform: uppercase; font-size: 12px;
+        }
+        .btn:hover, .btn.active { background: white; color: black; box-shadow: 0 0 15px rgba(255,255,255,0.4); }
+
+        /* Color Buttons */
+        #color-bar {
+            display: flex; gap: 15px;
+            background: rgba(0,0,0,0.5); padding: 8px 15px; border-radius: 30px;
+            backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .color-dot {
+            width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
+            border: 2px solid rgba(255,255,255,0.2); transition: transform 0.2s;
+        }
+        .color-dot:hover { transform: scale(1.2); border-color: white; }
+
+        .input_video { display: none; }
+        #cam-preview {
+            position: absolute; top: 10px; right: 10px; width: 100px; opacity: 0.3; z-index: 5;
+            transform: scaleX(-1); border: 1px solid #333;
+        }
     </style>
 </head>
 <body>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
-    <script>
-        // --- Global Variables ---
-        let scene, camera, renderer;
-        let particles, geometry, positions;
-        const particleCount = 50000;
-        const interactionPoint = new THREE.Vector3(0, 0, 0); // Simulated hand position
-        const interactionRadius = 5;
-        const repulsionStrength = 0.05;
+    <div id="loader">
+        <div style="font-size: 24px;">INITIALIZING SYSTEM</div>
+        <div id="status-text" style="font-size: 14px; margin-top: 10px; color: #888;">Loading 3D Engine...</div>
+    </div>
 
-        // --- Initialization ---
-        function init() {
-            // 1. Scene Setup
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
+    <div id="vignette"></div>
+    <video class="input_video" playsinline></video>
+    <canvas id="cam-preview"></canvas>
+    
+    <div id="ui-container">
+        <!-- NEW COLOR BUTTONS -->
+        <div id="color-bar">
+            <!-- Fire -->
+            <div class="color-dot" style="background: linear-gradient(45deg, #ffaa00, #ff0000);" onclick="setTheme('fire')"></div>
+            <!-- Ice -->
+            <div class="color-dot" style="background: linear-gradient(45deg, #00ffff, #0055ff);" onclick="setTheme('ice')"></div>
+            <!-- Nature -->
+            <div class="color-dot" style="background: linear-gradient(45deg, #55ff00, #00aa55);" onclick="setTheme('nature')"></div>
+            <!-- Cyber -->
+            <div class="color-dot" style="background: linear-gradient(45deg, #ff00cc, #aa00ff);" onclick="setTheme('cyber')"></div>
+            <!-- White/Gold -->
+            <div class="color-dot" style="background: linear-gradient(45deg, #ffffff, #ffaa00);" onclick="setTheme('gold')"></div>
+        </div>
 
-            // Set camera position
-            camera.position.z = 50;
+        <!-- SHAPE BUTTONS -->
+        <div id="shape-bar">
+            <button class="btn active" onclick="setShape('saturn')">Saturn</button>
+            <button class="btn" onclick="setShape('galaxy')">Galaxy</button>
+            <button class="btn" onclick="setShape('sphere')">Sphere</button>
+            <button class="btn" onclick="setShape('explode')">Disperse</button>
+        </div>
+    </div>
 
-            // 2. Create Particles
-            createParticles();
+    <!-- MAIN SCRIPT -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
-            // 3. Event Listeners for Interaction and Resizing
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('resize', onWindowResize);
+        const statusEl = document.getElementById('status-text');
+        statusEl.innerText = "Building Scene...";
 
-            // Start the loop
-            animate();
+        // --- CONFIG ---
+        const PARTICLE_COUNT = 30000;
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000000, 0.02);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.z = 8;
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        // --- POST PROCESSING (GLOW) ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0; 
+        bloomPass.strength = 1.3; 
+        bloomPass.radius = 0.5;
+        composer.addPass(renderPass);
+        composer.addPass(bloomPass);
+
+        // --- PARTICLES ---
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(PARTICLE_COUNT * 3);
+        const targetPositions = new Float32Array(PARTICLE_COUNT * 3);
+        const velocities = new Float32Array(PARTICLE_COUNT * 3);
+        const colors = new Float32Array(PARTICLE_COUNT * 3);
+        
+        // --- COLOR THEMES ---
+        const THEMES = {
+            fire:   { hot: new THREE.Color(0xffdd00), cold: new THREE.Color(0xff0000) },
+            ice:    { hot: new THREE.Color(0xffffff), cold: new THREE.Color(0x0055ff) },
+            nature: { hot: new THREE.Color(0xccff00), cold: new THREE.Color(0x008800) },
+            cyber:  { hot: new THREE.Color(0xff00cc), cold: new THREE.Color(0x00ffff) },
+            gold:   { hot: new THREE.Color(0xffffff), cold: new THREE.Color(0xffaa00) }
+        };
+
+        // Current actual color (for smooth transition)
+        let currentHot = THEMES.fire.hot.clone();
+        let currentCold = THEMES.fire.cold.clone();
+        
+        // Target color (what we want to reach)
+        let targetHot = THEMES.fire.hot;
+        let targetCold = THEMES.fire.cold;
+
+        for(let i=0; i<PARTICLE_COUNT * 3; i++) {
+            positions[i] = (Math.random() - 0.5) * 30;
+            targetPositions[i] = positions[i];
+            velocities[i] = 0;
+            colors[i] = 1;
         }
 
-        // --- Particle Creation Function ---
-        function createParticles() {
-            geometry = new THREE.BufferGeometry();
-            positions = new Float32Array(particleCount * 3);
-            const originalPositions = new Float32Array(particleCount * 3); // Store original static positions
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-            // Place particles randomly in a spherical volume
-            const sphereRadius = 25;
-            for (let i = 0; i < particleCount * 3; i += 3) {
-                // Random position within a sphere
-                const r = sphereRadius * Math.sqrt(Math.random());
-                const theta = Math.random() * 2 * Math.PI;
-                const phi = Math.random() * Math.PI;
+        // Soft Texture
+        const c = document.createElement('canvas'); c.width=32; c.height=32;
+        const ctx = c.getContext('2d');
+        const g = ctx.createRadialGradient(16,16,0,16,16,16);
+        g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.fillRect(0,0,32,32);
+        const tex = new THREE.CanvasTexture(c);
 
-                const x = r * Math.sin(phi) * Math.cos(theta);
-                const y = r * Math.sin(phi) * Math.sin(theta);
-                const z = r * Math.cos(phi);
+        const material = new THREE.PointsMaterial({ 
+            size: 0.08, map: tex, vertexColors: true, 
+            blending: THREE.AdditiveBlending, depthWrite: false, transparent: true 
+        });
 
-                positions[i] = x;
-                positions[i + 1] = y;
-                positions[i + 2] = z;
+        const particleSystem = new THREE.Points(geometry, material);
+        scene.add(particleSystem);
 
-                originalPositions[i] = x;
-                originalPositions[i + 1] = y;
-                originalPositions[i + 2] = z;
-            }
+        // --- SHAPE & THEME LOGIC ---
+        window.setShape = (type) => {
+            document.querySelectorAll('#shape-bar .btn').forEach(b => b.classList.remove('active'));
+            if(event && event.target) event.target.classList.add('active');
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('originalPosition', new THREE.BufferAttribute(originalPositions, 3));
-
-            const material = new THREE.PointsMaterial({
-                color: 0xffffee, // Light yellow/white color
-                size: 0.15,
-                sizeAttenuation: true,
-                transparent: true,
-                opacity: 0.8
-            });
-
-            particles = new THREE.Points(geometry, material);
-            scene.add(particles);
-            
-            // Add a subtle ambient light for better depth perception (optional)
-            scene.add(new THREE.AmbientLight(0x404040));
-        }
-
-        // --- Interaction Logic (Simulating Hand with Mouse) ---
-        function onMouseMove(event) {
-            // Convert mouse position to 3D world coordinates on a plane (Z=0)
-            const vector = new THREE.Vector3();
-            vector.set(
-                (event.clientX / window.innerWidth) * 2 - 1,
-                -(event.clientY / window.innerHeight) * 2 + 1,
-                0.5 // Camera near plane
-            );
-            
-            // Map the screen coordinate to the 3D scene (this is the key mapping step!)
-            vector.unproject(camera);
-            
-            const dir = vector.sub(camera.position).normalize();
-            const distance = -camera.position.z / dir.z; 
-            
-            // Update the simulated hand/interaction point
-            interactionPoint.copy(camera.position).add(dir.multiplyScalar(distance));
-        }
-
-        // --- Repulsion Physics Update ---
-        function updateParticles() {
-            const positionsArray = particles.geometry.attributes.position.array;
-            const originalPositionsArray = particles.geometry.attributes.originalPosition.array;
-
-            const tempParticlePosition = new THREE.Vector3();
-            const tempForceVector = new THREE.Vector3();
-
-            for (let i = 0; i < particleCount; i++) {
-                const i3 = i * 3;
-
-                // 1. Get current particle position
-                tempParticlePosition.set(positionsArray[i3], positionsArray[i3 + 1], positionsArray[i3 + 2]);
-
-                // 2. Calculate distance to interaction point (mouse/hand)
-                const distance = tempParticlePosition.distanceTo(interactionPoint);
-
-                if (distance < interactionRadius) {
-                    // 3. Apply Repulsion Force
-                    // Direction vector from interaction point to particle
-                    tempForceVector.subVectors(tempParticlePosition, interactionPoint).normalize();
-                    
-                    // Strength decreases with distance
-                    const influence = (interactionRadius - distance) / interactionRadius; 
-                    tempForceVector.multiplyScalar(repulsionStrength * influence);
-                    
-                    // Apply force to push particle away
-                    positionsArray[i3] += tempForceVector.x;
-                    positionsArray[i3 + 1] += tempForceVector.y;
-                    positionsArray[i3 + 2] += tempForceVector.z;
-                } else {
-                    // 4. Decay and return to original position (to make it springy)
-                    const originalX = originalPositionsArray[i3];
-                    const originalY = originalPositionsArray[i3 + 1];
-                    const originalZ = originalPositionsArray[i3 + 2];
-                    
-                    positionsArray[i3] += (originalX - positionsArray[i3]) * 0.02; // 0.02 is the decay rate
-                    positionsArray[i3 + 1] += (originalY - positionsArray[i3 + 1]) * 0.02;
-                    positionsArray[i3 + 2] += (originalZ - positionsArray[i3 + 2]) * 0.02;
+            let idx = 0;
+            for(let i=0; i<PARTICLE_COUNT; i++) {
+                let x, y, z;
+                if(type === 'saturn') {
+                    const r = Math.random();
+                    if(r<0.6) { // Planet
+                         const theta=Math.random()*Math.PI*2, phi=Math.acos(2*Math.random()-1), rad=2.5;
+                         x=rad*Math.sin(phi)*Math.cos(theta); y=rad*Math.sin(phi)*Math.sin(theta); z=rad*Math.cos(phi);
+                    } else { // Ring
+                         const ang=Math.random()*Math.PI*2, rad=3.5+Math.random()*2.5;
+                         x=Math.cos(ang)*rad; z=Math.sin(ang)*rad; y=(Math.random()-0.5)*0.2;
+                    }
+                    const tx=x; x=tx*Math.cos(0.4)-y*Math.sin(0.4); y=tx*Math.sin(0.4)+y*Math.cos(0.4);
+                } else if (type === 'galaxy') {
+                    const spin = i*0.0005, r=Math.random()*6, angle=spin+(i%3 * 2.09);
+                    x=Math.cos(angle)*r; z=Math.sin(angle)*r; y=(Math.random()-0.5)*(1-r/6);
+                } else if (type === 'sphere') {
+                     const theta=Math.random()*6.28, phi=Math.acos(2*Math.random()-1), r=3.5;
+                     x=r*Math.sin(phi)*Math.cos(theta); y=r*Math.sin(phi)*Math.sin(theta); z=r*Math.cos(phi);
+                } else { // Disperse
+                     const r=Math.random()*15, theta=Math.random()*6.28, phi=Math.acos(2*Math.random()-1);
+                     x=r*Math.sin(phi)*Math.cos(theta); y=r*Math.sin(phi)*Math.sin(theta); z=r*Math.cos(phi);
                 }
+                targetPositions[idx] = x; targetPositions[idx+1] = y; targetPositions[idx+2] = z;
+                idx += 3;
             }
+        };
 
-            particles.geometry.attributes.position.needsUpdate = true; // Tell Three.js the positions changed
+        // NEW: Theme Switcher
+        window.setTheme = (themeName) => {
+            if(THEMES[themeName]) {
+                targetHot = THEMES[themeName].hot;
+                targetCold = THEMES[themeName].cold;
+            }
         }
+        
+        // Init
+        window.setShape('saturn');
+        window.setTheme('gold'); // Default theme
 
-        // --- Animation Loop ---
+        // --- MEDIAPIPE ---
+        statusEl.innerText = "Requesting Camera Access...";
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const previewCanvas = document.getElementById('cam-preview');
+        const previewCtx = previewCanvas.getContext('2d');
+        
+        let handDist = 0;
+
+        const hands = new window.Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
+
+        hands.onResults((results) => {
+            previewCtx.clearRect(0,0,previewCanvas.width, previewCanvas.height);
+            previewCtx.drawImage(results.image, 0, 0, previewCanvas.width, previewCanvas.height);
+
+            if(results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                const h1 = results.multiHandLandmarks[0][9];
+                const h2 = results.multiHandLandmarks[1][9];
+                const d = Math.sqrt((h1.x-h2.x)**2 + (h1.y-h2.y)**2);
+                handDist += (d - handDist) * 0.1;
+                statusEl.innerText = "Control Active"; statusEl.style.color = "#00ff00";
+            } else {
+                handDist += (0.2 - handDist) * 0.05;
+            }
+        });
+
+        const cameraUtils = new window.Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+
+        cameraUtils.start().then(() => {
+            document.getElementById('loader').style.opacity = 0;
+            setTimeout(()=>document.getElementById('loader').style.display='none', 500);
+        }).catch(err => {
+            statusEl.innerHTML = `<span style="color:red">Camera Error: ${err.message}</span>`;
+        });
+
+        // --- ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+
         function animate() {
             requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
 
-            // Update physics (repulsion and decay)
-            updateParticles();
-            
-            // Optional: Rotate the whole system slowly
-            particles.rotation.y += 0.001; 
-            particles.rotation.x += 0.0005;
+            // 1. Smoothly Transition Colors
+            currentHot.lerp(targetHot, 0.05);
+            currentCold.lerp(targetCold, 0.05);
 
-            renderer.render(scene, camera);
+            // 2. Hand Control Scale
+            const scale = 0.5 + (handDist * 4.0);
+            particleSystem.scale.setScalar(scale);
+            particleSystem.rotation.y = time * 0.15;
+
+            // 3. Physics & Color Update
+            const pos = geometry.attributes.position.array;
+            const col = geometry.attributes.color.array;
+
+            for(let i=0; i<PARTICLE_COUNT; i++) {
+                const idx=i*3;
+                
+                // Physics
+                velocities[idx] += (targetPositions[idx] - pos[idx]) * 0.02;
+                velocities[idx+1] += (targetPositions[idx+1] - pos[idx+1]) * 0.02;
+                velocities[idx+2] += (targetPositions[idx+2] - pos[idx+2]) * 0.02;
+                velocities[idx] *= 0.92; velocities[idx+1] *= 0.92; velocities[idx+2] *= 0.92;
+                pos[idx] += velocities[idx]; pos[idx+1] += velocities[idx+1]; pos[idx+2] += velocities[idx+2];
+
+                // Color Blending (Center = Hot, Outer = Cold)
+                const d = Math.sqrt(pos[idx]**2 + pos[idx+1]**2 + pos[idx+2]**2) / 7;
+                const a = Math.max(0, 1 - d);
+                
+                col[idx]   = currentHot.r * a + currentCold.r * (1-a);
+                col[idx+1] = currentHot.g * a + currentCold.g * (1-a);
+                col[idx+2] = currentHot.b * a + currentCold.b * (1-a);
+            }
+
+            geometry.attributes.position.needsUpdate = true;
+            geometry.attributes.color.needsUpdate = true;
+            composer.render();
         }
 
-        // --- Handle Window Resizing ---
-        function onWindowResize() {
+        animate();
+        
+        window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // Run the main initialization function
-        init();
-
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
     </script>
 </body>
 </html>
